@@ -128,7 +128,7 @@ app.put("/updateproduct", async (req, res) => {
 // ================== AUTH ==================
 
 // Signup
-app.post("/signup", async (req, res) => {
+app.post('/signup', async (req, res) => {
   try {
     const { username, email, password } = req.body;
 
@@ -153,26 +153,21 @@ app.post("/signup", async (req, res) => {
 });
 
 // Signin
-app.post("/signin", async (req, res) => {
-  try {
-    const { username, password } = req.body;
-
-    const user = await User.findOne({ username });
-    if (!user) return res.json({ msg: "User not found" });
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.json({ msg: "Incorrect password" });
-
-    const token = jwt.sign({ username }, secretkey, { expiresIn: "1h" });
-
-    res.json({
-      msg: "Login successful",
-      token,
-    });
-  } catch (error) {
-    res.json({ msg: error.message });
-  }
-});
+app.post('/signin',async (req,res)=>{//login logic
+    try {
+    const {username,password} = req.body
+    let userdetails = await User.findOne({username})
+    if(!userdetails) return res.json({msg:"user not found"})
+    let checkpassword = await bcrypt.compare(password,userdetails.password)
+    if(!checkpassword) return res.json({msg:"invalid credentials/username/password is wrong"})
+    let payload = {username:username}
+    let token = jwt.sign(payload,secretkey,{expiresIn:"1hr"})
+    res.json({msg:"login successful",tokenKey:token})
+    } catch (error) {
+        res.json({msg:error.message})
+        
+    }
+})
 
 // ================== START SERVER ==================
 app.listen(port, async () => {
