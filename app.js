@@ -9,6 +9,7 @@ const nodemailer = require("nodemailer");
 const dotenv = require("dotenv");
 const { rateLimit } = require("express-rate-limit");
 
+// ================== ENV CONFIG ==================
 dotenv.config();
 
 // ================== APP SETUP ==================
@@ -28,39 +29,42 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // ================== DB CONNECTION ==================
-async function connection() {
+async function connectDB() {
   try {
     await mongoose.connect(process.env.MONGODBURL);
     console.log("MongoDB connected ✅");
   } catch (error) {
-    console.log("MongoDB error ❌", error.message);
+    console.error("MongoDB connection failed ❌", error.message);
+    process.exit(1);
   }
 }
 
+// 🔥 CONNECT DB BEFORE STARTING SERVER
+connectDB();
+
 // ================== SCHEMAS ==================
-const productschema = new mongoose.Schema({
+const productSchema = new mongoose.Schema({
   title: { type: String, required: true },
   price: { type: Number, required: true },
   img: { type: String, required: true },
 });
 
-const userschema = new mongoose.Schema({
+const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   email: { type: String, required: true },
   password: { type: String, required: true },
 });
 
 // ================== MODELS ==================
-const Product = mongoose.model("products", productschema);
-const User = mongoose.model("users", userschema);
+const Product = mongoose.model("products", productSchema);
+const User = mongoose.model("users", userSchema);
 
 // ================== NODEMAILER ==================
-// ⚠️ Use PERSONAL GMAIL + APP PASSWORD
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
     user: process.env.EMAIL,
-    pass: process.env.PASSWORD, // app password
+    pass: process.env.PASSWORD, // Gmail App Password
   },
 });
 
@@ -72,15 +76,7 @@ app.get("/dummy", (req, res) => {
   res.send(`My name is ${name}, age is ${age}, from ${location}`);
 });
 
-// Get product by ID
-app.get("/product/:id", async (req, res) => {
-  try {
-    const product = await Product.findById(req.params.id);
-    res.json(product);
-  } catch (error) {
-    res.json({ msg: error.message });
-  }
-});
+// ================== PRODUCTS ==================
 
 // Add product
 app.post("/products", async (req, res) => {
@@ -89,7 +85,7 @@ app.post("/products", async (req, res) => {
     await Product.create({ title, price, img });
     res.json({ msg: "Product added successfully" });
   } catch (error) {
-    res.json({ msg: error.message });
+    res.status(500).json({ msg: error.message });
   }
 });
 
@@ -99,7 +95,17 @@ app.get("/products", async (req, res) => {
     const products = await Product.find();
     res.json(products);
   } catch (error) {
-    res.json({ msg: error.message });
+    res.status(500).json({ msg: error.message });
+  }
+});
+
+// Get product by ID
+app.get("/product/:id", async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    res.json(product);
+  } catch (error) {
+    res.status(500).json({ msg: error.message });
   }
 });
 
@@ -110,7 +116,7 @@ app.delete("/deleteproduct", async (req, res) => {
     await Product.findByIdAndDelete(id);
     res.json({ msg: "Product deleted successfully" });
   } catch (error) {
-    res.json({ msg: error.message });
+    res.status(500).json({ msg: error.message });
   }
 });
 
@@ -121,22 +127,23 @@ app.put("/updateproduct", async (req, res) => {
     await Product.findByIdAndUpdate(id, { title, price, img });
     res.json({ msg: "Product updated successfully" });
   } catch (error) {
-    res.json({ msg: error.message });
+    res.status(500).json({ msg: error.message });
   }
 });
 
 // ================== AUTH ==================
 
 // Signup
-app.post('/signup', async (req, res) => {
+app.post("/signup", async (req, res) => {
   try {
     const { username, email, password } = req.body;
 
-    const isUser = await User.findOne({ username });
-    if (isUser) return res.json({ msg: "Username already exists" });
+    const existingUser = await User.findOne({ username });
+    if (existingUser)
+      return res.json({ msg: "Username already exists" });
 
-    const hashedpassword = await bcrypt.hash(password, 10);
-    await User.create({ username, email, password: hashedpassword });
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await User.create({ username, email, password: hashedPassword });
 
     // Send welcome email
     await transporter.sendMail({
@@ -148,29 +155,33 @@ app.post('/signup', async (req, res) => {
 
     res.json({ msg: "Signup successful & email sent" });
   } catch (error) {
-    res.json({ msg: error.message });
+    res.status(500).json({ msg: error.message });
   }
 });
 
 // Signin
-app.post('/signin',async (req,res)=>{//login logic
-    try {
-    const {username,password} = req.body
-    let userdetails = await User.findOne({username})
-    if(!userdetails) return res.json({msg:"user not found"})
-    let checkpassword = await bcrypt.compare(password,userdetails.password)
-    if(!checkpassword) return res.json({msg:"invalid credentials/username/password is wrong"})
-    let payload = {username:username}
-    let token = jwt.sign(payload,secretkey,{expiresIn:"1hr"})
-    res.json({msg:"login successful",tokenKey:token})
-    } catch (error) {
-        res.json({msg:error.message})
-        
-    }
-})
+app.post("/signin", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    const user = await User.findOne({ username });
+    if (!user) return res.json({ msg: "User not found" });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch)
+      return res.json({ msg: "Invalid username or password" });
+
+    const token = jwt.sign({ username }, secretkey, {
+      expiresIn: "1h",
+    });
+
+    res.json({ msg: "Login successful", tokenKey: token });
+  } catch (error) {
+    res.status(500).json({ msg: error.message });
+  }
+});
 
 // ================== START SERVER ==================
-app.listen(port, async () => {
+app.listen(port, () => {
   console.log(`Server running on port ${port}`);
-  await connection();
 });
